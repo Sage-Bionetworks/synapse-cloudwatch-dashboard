@@ -75,7 +75,7 @@ def create_ec2_network_out_widget(title, ec2_instance_ids):
 def rds_ids_from_stack_versions(stack, stack_versions):
   db_types = ['db', 'table-0']
   ids = [f'{stack}-{sv}-{dbt}' for sv in stack_versions for dbt in db_types]
-  ids.append(f'{stack}-id-generator-db-2-orange')
+  ids.append(f'{stack}-id-generator-db-3-orange')
   return ids
 
 
@@ -179,8 +179,8 @@ def create_ses_widget(title):
   widget = cw.GraphWidget(title=title, width=24, height=4,
                           view=cw.GraphWidgetView.TIME_SERIES,
                           left=[
-                            bounce_rate_metric,
-                            complaint_rate_metric,
+                            # bounce_rate_metric,
+                            # complaint_rate_metric,
                             bounce_rate_expression,
                             complaint_rate_expression
                           ],
@@ -259,9 +259,43 @@ def create_cloudsearch_metric(dimension_value):
   return metric
 
 
-def create_cloudsearch_widget(title, stack_versions):
-  dimension_values = [f'prod-{sv}-sagebase-org' for sv in stack_versions]
-  metrics = [create_cloudsearch_metric(dv) for dv in dimension_values]
+# def create_cloudsearch_widget(title, stack_versions):
+#   dimension_values = [f'prod-{sv}-sagebase-org' for sv in stack_versions]
+#   metrics = [create_cloudsearch_metric(dv) for dv in dimension_values]
+#   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
+#   return widget
+
+
+'''
+  OpenSearch
+'''
+def get_opensearch_collection_id(session, collection_name):
+  client = session.client('opensearchserverless', region_name='us-east-1')
+  collection_summaries = client.list_collections(collectionFilters={"name":collection_name}, maxResults=10)['collectionSummaries']
+  if len(collection_summaries) == 0:
+    return None
+  if len(collection_summaries) > 1:
+    raise Exception(f"Found multiple collections with name {collection_name}")
+  return collection_summaries[0]['id']
+
+
+def create_opensearch_metric(dimension_value):
+  collection_id = get_opensearch_collection_id(boto3.Session(), dimension_value)
+  metric = cw.Metric(
+    namespace="AWS/AOSS",
+    metric_name="SearchableDocuments",
+    dimensions_map={
+      "CollectionId": collection_id,
+      "CollectionName": dimension_value,
+      "ClientId": "325565585839"},
+    region="us-east-1"
+  )
+  return metric
+
+
+def create_opensearch_widget(title, stack_versions):
+  dimension_values = [f'prod-{sv}-synsearch' for sv in stack_versions]
+  metrics = [create_opensearch_metric(dv) for dv in dimension_values]
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -443,7 +477,8 @@ class SynapseCloudwatchDashboardStack(Stack):
       config = init_config(stack=stack, profile_name=profile_name)
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
-      cloudsearch_widget = create_cloudsearch_widget(title='CloudSearch - searchableDocuments', stack_versions=stack_versions)
+#      cloudsearch_widget = create_cloudsearch_widget(title='CloudSearch - searchableDocuments', stack_versions=stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
@@ -492,7 +527,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(repo_alb_rtime_widget2)
       dashboard.add_widgets(ses_widget)
       dashboard.add_widgets(filescanner_widget)
-      dashboard.add_widgets(cloudsearch_widget)
+      dashboard.add_widgets(opensearch_widget)
       dashboard.add_widgets(rds_read_throughput_widget, rds_write_throughput_widget)
       dashboard.add_widgets(rds_read_latency_widget, rds_write_latency_widget)
       dashboard.add_widgets(rds_read_iops_widget, rds_write_iops_widget)
