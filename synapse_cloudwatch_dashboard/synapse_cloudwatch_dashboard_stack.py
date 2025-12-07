@@ -248,54 +248,25 @@ def create_workers_active_connections_widget(title, stack_versions):
 
 
 '''
-  CloudSearch
-'''
-def create_cloudsearch_metric(dimension_value):
-  metric = cw.Metric(
-    namespace="AWS/CloudSearch",
-    metric_name="SearchableDocuments",
-    dimensions_map={"DomainName": dimension_value, "ClientId": "325565585839"}
-  )
-  return metric
-
-
-# def create_cloudsearch_widget(title, stack_versions):
-#   dimension_values = [f'prod-{sv}-sagebase-org' for sv in stack_versions]
-#   metrics = [create_cloudsearch_metric(dv) for dv in dimension_values]
-#   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
-#   return widget
-
-
-'''
   OpenSearch
 '''
-def get_opensearch_collection_id(session, collection_name):
-  client = session.client('opensearchserverless', region_name='us-east-1')
-  collection_summaries = client.list_collections(collectionFilters={"name":collection_name}, maxResults=10)['collectionSummaries']
-  if len(collection_summaries) == 0:
-    return None
-  if len(collection_summaries) > 1:
-    raise Exception(f"Found multiple collections with name {collection_name}")
-  return collection_summaries[0]['id']
-
-
-def create_opensearch_metric(dimension_value):
-  collection_id = get_opensearch_collection_id(boto3.Session(), dimension_value)
+def create_opensearch_metric(config, stack_version):
+  collection_name = f'prod-{stack_version}-synsearch'
+  collection_id = config[f'{stack_version}-opensearch-collection-id'][0]
   metric = cw.Metric(
     namespace="AWS/AOSS",
     metric_name="SearchableDocuments",
     dimensions_map={
       "CollectionId": collection_id,
-      "CollectionName": dimension_value,
+      "CollectionName": collection_name,
       "ClientId": "325565585839"},
     region="us-east-1"
   )
   return metric
 
 
-def create_opensearch_widget(title, stack_versions):
-  dimension_values = [f'prod-{sv}-synsearch' for sv in stack_versions]
-  metrics = [create_opensearch_metric(dv) for dv in dimension_values]
+def create_opensearch_widget(title, config, stack_versions):
+  metrics = [create_opensearch_metric(config, sv) for sv in stack_versions]
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -478,7 +449,7 @@ class SynapseCloudwatchDashboardStack(Stack):
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
 #      cloudsearch_widget = create_cloudsearch_widget(title='CloudSearch - searchableDocuments', stack_versions=stack_versions)
-      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', stack_versions=stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
