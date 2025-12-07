@@ -211,8 +211,8 @@ class RealTimeConfiguration:
       alb_name = m.groups()[0]
     return alb_name
 
-  def get_opensearch_collection_id(self, stack, stack_instance):
-    collection_name = f'{stack}-{stack_instance}-synsearch'
+  def get_opensearch_collection_id(self, stack, stack_version):
+    collection_name = f'{stack}-{stack_version}-synsearch'
     client = aws_provider.get_client("opensearchserverless")
     collection_summaries = client.list_collections(collectionFilters={"name": collection_name}, maxResults=10)['collectionSummaries']
     if len(collection_summaries) == 0:
@@ -264,7 +264,7 @@ class AppConfiguration:
     app_config.update_configuration_entry(key=f'{self.version}-repo-alb-name', values=[repo_alb_name])
 
     # OpenSearch collection id
-    collection_id = realtime_config.get_opensearch_collection_id(stack=self.stack, stack_instance=self.instances['repo'])
+    collection_id = realtime_config.get_opensearch_collection_id(stack=self.stack, stack_version=self.version)
     app_config.update_configuration_entry(key=f'{self.version}-opensearch-collection-id', values=[collection_id])
 
     # Save config
