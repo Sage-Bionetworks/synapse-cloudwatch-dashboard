@@ -206,7 +206,7 @@ class RealTimeConfiguration:
     alb_name = ''
     if resp["ResourceTagMappingList"]:
       arn = resp["ResourceTagMappingList"][0]["ResourceARN"]
-      p = re.compile('arn:aws:elasticloadbalancing:us-east-1:\d+:loadbalancer/(.+)')
+      p = re.compile('arn:aws:elasticloadbalancing:us-east-1:\\d+:loadbalancer/(.+)')
       m = p.match(arn)
       alb_name = m.groups()[0]
     return alb_name
