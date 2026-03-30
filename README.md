@@ -29,6 +29,13 @@ Once the virtualenv is activated, you can install the required dependencies.
 $ pip install -r requirements.txt
 ```
 
+
+Now run the `configuration.py` script, for example:
+
+```
+$ python configuration.py prod 582 582.0-2-gf2364657e6,582.0-2-gf2364657e6,582.0-2-g4399687a90 synapse-prod
+```
+
 At this point you can now synthesize the CloudFormation template for this code.
 
 ```
