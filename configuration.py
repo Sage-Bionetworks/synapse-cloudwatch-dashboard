@@ -269,7 +269,8 @@ class AppConfiguration:
 if __name__ == '__main__':
 
   if len(sys.argv) != 5:
-    raise ValueError('Usage: python configuration.py <stack> <stack_version> <env_instances>')
+    raise ValueError('Usage: python configuration.py <stack> <instance> <repo-beanstalk-number>,<worker-beanstalk-number>,<portal-beanstalk-number> <aws-cli-profile>, e.g., '+
+    	'python configuration.py prod 582 582-0,582-0,582-0 myProfile')
 
   stack = sys.argv[1]
   stack_version = sys.argv[2]
