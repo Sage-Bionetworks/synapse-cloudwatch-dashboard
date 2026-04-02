@@ -75,7 +75,7 @@ def create_ec2_network_out_widget(title, ec2_instance_ids):
 def rds_ids_from_stack_versions(stack, stack_versions):
   db_types = ['db', 'table-0']
   ids = [f'{stack}-{sv}-{dbt}' for sv in stack_versions for dbt in db_types]
-  ids.append(f'{stack}-id-generator-db-orange')
+  ids.append(f'{stack}-id-generator-db-3-orange')
   return ids
 
 
@@ -179,8 +179,8 @@ def create_ses_widget(title):
   widget = cw.GraphWidget(title=title, width=24, height=4,
                           view=cw.GraphWidgetView.TIME_SERIES,
                           left=[
-                            bounce_rate_metric,
-                            complaint_rate_metric,
+                            # bounce_rate_metric,
+                            # complaint_rate_metric,
                             bounce_rate_expression,
                             complaint_rate_expression
                           ],
@@ -248,20 +248,25 @@ def create_workers_active_connections_widget(title, stack_versions):
 
 
 '''
-  CloudSearch
+  OpenSearch
 '''
-def create_cloudsearch_metric(dimension_value):
+def create_opensearch_metric(config, stack, stack_version):
+  collection_name = f'{stack}-{stack_version}-synsearch'
+  collection_id = config[f'{stack_version}-opensearch-collection-id'][0]
   metric = cw.Metric(
-    namespace="AWS/CloudSearch",
+    namespace="AWS/AOSS",
     metric_name="SearchableDocuments",
-    dimensions_map={"DomainName": dimension_value, "ClientId": "325565585839"}
+    dimensions_map={
+      "CollectionId": collection_id,
+      "CollectionName": collection_name,
+      "ClientId": "325565585839"},
+    region="us-east-1"
   )
   return metric
 
 
-def create_cloudsearch_widget(title, stack_versions):
-  dimension_values = [f'prod-{sv}-sagebase-org' for sv in stack_versions]
-  metrics = [create_cloudsearch_metric(dv) for dv in dimension_values]
+def create_opensearch_widget(title, config, stack, stack_versions):
+  metrics = [create_opensearch_metric(config, stack, sv) for sv in stack_versions]
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -281,24 +286,101 @@ def create_repo_alb_response_widget(title, config, stack_versions):
                           left=metrics)
   return widget
 
-def create_docker_cpu_widget():
-  metric1 = cw.Metric(namespace='AWS/EC2', metric_name="CPUUtilization", dimensions_map={'InstanceId': 'i-03caba8ba8027dcdb'},
-                     period=Duration.seconds(300))
-  metric2 = cw.Metric(namespace='AWS/EC2', metric_name="CPUUtilization", dimensions_map={'InstanceId': 'i-0e72eb7485bf626fd'},
-                      period=Duration.seconds(300))
-  metrics = [metric1, metric2]
-  widget = cw.GraphWidget(title='Docker - CPU utilization', width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
+def create_repo_alb_response_widget_v2(title, config, stack_versions):
+  metrics = []
+
+  dimension_pairs = [(sv, dv)
+                     for sv in stack_versions
+                     if f'{sv}-repo-alb-name' in config
+                     for dv in config[f'{sv}-repo-alb-name']]
+
+  for sv, dv in dimension_pairs:
+    metric1 = cw.Metric(
+      namespace='AWS/ApplicationELB',
+      metric_name='TargetResponseTime',
+      dimensions_map={'LoadBalancer': dv},
+      period=Duration.seconds(300),
+      statistic='Average',
+      label=f'{sv} - Average'
+    )
+    metric2 = cw.Metric(
+      namespace='AWS/ApplicationELB',
+      metric_name='TargetResponseTime',
+      dimensions_map={'LoadBalancer': dv},
+      period=Duration.seconds(300),
+      statistic='p95',
+      label=f'{sv} - p95'
+    )
+    metrics.append(metric1)
+    metrics.append(metric2)
+
+  widget = cw.GraphWidget(
+    title=title,
+    width=24,
+    height=4,
+    view=cw.GraphWidgetView.TIME_SERIES,
+    stacked=False,
+    set_period_to_time_range=True,
+    left=metrics
+  )
+
+  return widget
+
+def create_docker_cpu_widget_v2(stack):
+  DIMENSIONS = {
+    "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
+    "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
+  } if stack == 'prod' else {
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
+  }
+  widget = create_ecs_cpu_widget(DIMENSIONS)
+  return widget
+
+def create_ecs_cpu_widget(dimensions):
+  # CPU utilization
+  cpu_min = cw.Metric(
+    namespace="AWS/ECS",
+    metric_name="CPUUtilization",
+    dimensions_map=dimensions,
+    statistic="Minimum",
+    region="us-east-1"
+  )
+  cpu_max = cpu_min.with_(statistic="Maximum")
+  cpu_avg = cpu_min.with_(statistic="Average")
+  metrics = [cpu_min, cpu_max, cpu_avg]
+  widget = cw.GraphWidget(title="Docker - CPU utilization", width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
                           stacked=False, set_period_to_time_range=True,
                           left=metrics)
   return widget
 
-def create_docker_network_widget():
-  metric1 = cw.Metric(namespace='AWS/EC2', metric_name="NetworkOut", dimensions_map={'InstanceId': 'i-03caba8ba8027dcdb'},
-                     period=Duration.seconds(300))
-  metric2 = cw.Metric(namespace='AWS/EC2', metric_name="NetworkOut", dimensions_map={'InstanceId': 'i-0e72eb7485bf626fd'},
-                      period=Duration.seconds(300))
-  metrics = [metric1, metric2]
-  widget = cw.GraphWidget(title='Docker - Network out', width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
+
+def create_docker_network_widget_v2(stack):
+  DIMENSIONS = {
+    "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
+    "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
+  } if stack == 'prod' else {
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
+  }
+
+  # Network bandwidth metrics
+  network_rx = cw.Metric(
+    namespace="ECS/ContainerInsights",
+    metric_name="NetworkRxBytes",
+    dimensions_map=DIMENSIONS,
+    statistic="Sum",
+    region="us-east-1"
+  )
+  network_tx = cw.Metric(
+    namespace="ECS/ContainerInsights",
+    metric_name="NetworkTxBytes",
+    dimensions_map=DIMENSIONS,
+    statistic="Sum",
+    region="us-east-1"
+  )
+  metrics = [network_rx, network_tx]
+  widget = cw.GraphWidget(title="Docker - Network utilization", width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
                           stacked=False, set_period_to_time_range=True,
                           left=metrics)
   return widget
@@ -332,7 +414,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       config = init_config(stack=stack, profile_name=profile_name)
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
-      cloudsearch_widget = create_cloudsearch_widget(title='CloudSearch - searchableDocuments', stack_versions=stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
@@ -351,9 +433,9 @@ class SynapseCloudwatchDashboardStack(Stack):
       workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", config=config, stack_versions=stack_versions, metric_name='Completed Job Count')
       workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", config=config, stack_versions=stack_versions, metric_name='% Time Running')
       workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", config=config, stack_versions=stack_versions, metric_name='Cumulative runtime')
-      repo_alb_rtime_widget = create_repo_alb_response_widget(title='Repo ALB response time', config=config, stack_versions=stack_versions)
-      docker_cpu_widget = create_docker_cpu_widget()
-      docker_network_widget = create_docker_network_widget()
+      repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
+      docker_cpu_widget = create_docker_cpu_widget_v2(stack)
+      docker_network_widget = create_docker_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
       rds_write_throughput_widget = create_rds_write_throughput_widget(title="RDS Write Throughput", stack=stack, stack_versions=stack_versions)
       rds_read_latency_widget = create_rds_read_latency_widget(title="RDS Read Latency", stack=stack, stack_versions=stack_versions)
@@ -376,10 +458,10 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(workers_pc_time_widget)
       dashboard.add_widgets(workers_cumulative_time_widget)
       dashboard.add_widgets(query_perf_widget)
-      dashboard.add_widgets(repo_alb_rtime_widget)
+      dashboard.add_widgets(repo_alb_rtime_widget2)
       dashboard.add_widgets(ses_widget)
       dashboard.add_widgets(filescanner_widget)
-      dashboard.add_widgets(cloudsearch_widget)
+      dashboard.add_widgets(opensearch_widget)
       dashboard.add_widgets(rds_read_throughput_widget, rds_write_throughput_widget)
       dashboard.add_widgets(rds_read_latency_widget, rds_write_latency_widget)
       dashboard.add_widgets(rds_read_iops_widget, rds_write_iops_widget)

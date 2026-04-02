@@ -19,6 +19,7 @@ class AwsProvider:
       self.clients['ec2'] = self.session.client('ec2')
       self.clients['cloudwatch'] = self.session.client('cloudwatch')
       self.clients['resourcegroupstaggingapi'] = self.session.client('resourcegroupstaggingapi')
+      self.clients['opensearchserverless'] = self.session.client('opensearchserverless')
       self.resources['s3'] = self.session.resource('s3')
       self.resources['ec2'] = self.session.resource('ec2')
 
@@ -28,8 +29,9 @@ class AwsProvider:
         and client_type != 'ec2'
         and client_type != 'rds'
         and client_type != 'cloudwatch'
-        and client_type != 'resourcegroupstaggingapi'):
-      raise ValueError("Client type error, valid client types are 's3', 'ec2, 'rds' and 'cloudwatch.")
+        and client_type != 'resourcegroupstaggingapi'
+        and client_type != 'opensearchserverless'):
+      raise ValueError("Client type error, valid client types are 's3', 'ec2, 'rds' and 'opensearchserverless'.")
     if client_type not in self.clients.keys():
       return ValueError(f"Client type error, {client_type} not found in AWS clients")
     return self.clients[client_type]
@@ -204,10 +206,20 @@ class RealTimeConfiguration:
     alb_name = ''
     if resp["ResourceTagMappingList"]:
       arn = resp["ResourceTagMappingList"][0]["ResourceARN"]
-      p = re.compile('arn:aws:elasticloadbalancing:us-east-1:\d+:loadbalancer/(.+)')
+      p = re.compile('arn:aws:elasticloadbalancing:us-east-1:\\d+:loadbalancer/(.+)')
       m = p.match(arn)
       alb_name = m.groups()[0]
     return alb_name
+
+  def get_opensearch_collection_id(self, stack, stack_version):
+    collection_name = f'{stack}-{stack_version}-synsearch'
+    client = aws_provider.get_client("opensearchserverless")
+    collection_summaries = client.list_collections(collectionFilters={"name": collection_name}, maxResults=10)['collectionSummaries']
+    if len(collection_summaries) == 0:
+      return None
+    if len(collection_summaries) > 1:
+      raise Exception(f"Found multiple collections with name {collection_name}")
+    return collection_summaries[0]['id']
 
 
 class AppConfiguration:
@@ -250,6 +262,10 @@ class AppConfiguration:
     # repo ALB name
     repo_alb_name = realtime_config.get_repo_alb_name(stack=self.stack, stack_instance=self.instances['repo'])
     app_config.update_configuration_entry(key=f'{self.version}-repo-alb-name', values=[repo_alb_name])
+
+    # OpenSearch collection id
+    collection_id = realtime_config.get_opensearch_collection_id(stack=self.stack, stack_version=self.version)
+    app_config.update_configuration_entry(key=f'{self.version}-opensearch-collection-id', values=[collection_id])
 
     # Save config
     self.configuration_provider.save_raw_configuration(self.configuration)
