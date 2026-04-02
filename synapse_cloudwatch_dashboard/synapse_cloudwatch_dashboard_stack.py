@@ -334,12 +334,15 @@ def create_docker_cpu_widget_v2(stack):
     "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
     "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
+  widget = create_ecs_cpu_widget(DIMENSIONS)
+  return widget
 
+def create_ecs_cpu_widget(dimensions):
   # CPU utilization
   cpu_min = cw.Metric(
     namespace="AWS/ECS",
     metric_name="CPUUtilization",
-    dimensions_map=DIMENSIONS,
+    dimensions_map=dimensions,
     statistic="Minimum",
     region="us-east-1"
   )
@@ -350,6 +353,7 @@ def create_docker_cpu_widget_v2(stack):
                           stacked=False, set_period_to_time_range=True,
                           left=metrics)
   return widget
+
 
 def create_docker_network_widget_v2(stack):
   DIMENSIONS = {
