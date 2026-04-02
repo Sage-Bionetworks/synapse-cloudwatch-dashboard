@@ -331,27 +331,39 @@ def create_docker_cpu_widget_v2(stack):
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
   } if stack == 'prod' else {
-    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP",
     "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
   widget = create_ecs_cpu_widget(DIMENSIONS)
   return widget
 
 def create_ecs_cpu_widget(dimensions):
-  # CPU utilization
-  cpu_min = cw.Metric(
-    namespace="AWS/ECS",
-    metric_name="CPUUtilization",
+  # Prefer ECS/ContainerInsights metrics if available
+  # Container Insights metrics: CpuUtilized, CpuReserved, etc.
+  cpu_utilized = cw.Metric(
+    namespace="ECS/ContainerInsights",
+    metric_name="CpuUtilized",
     dimensions_map=dimensions,
-    statistic="Minimum",
+    statistic="Average",
     region="us-east-1"
   )
-  cpu_max = cpu_min.with_(statistic="Maximum")
-  cpu_avg = cpu_min.with_(statistic="Average")
-  metrics = [cpu_min, cpu_max, cpu_avg]
-  widget = cw.GraphWidget(title="Docker - CPU utilization", width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
-                          stacked=False, set_period_to_time_range=True,
-                          left=metrics)
+  cpu_reserved = cw.Metric(
+    namespace="ECS/ContainerInsights",
+    metric_name="CpuReserved",
+    dimensions_map=dimensions,
+    statistic="Average",
+    region="us-east-1"
+  )
+  metrics = [cpu_utilized, cpu_reserved]
+  widget = cw.GraphWidget(
+    title="ECS Container Insights - CPU Utilization vs Reserved",
+    width=12,
+    height=4,
+    view=cw.GraphWidgetView.TIME_SERIES,
+    stacked=False,
+    set_period_to_time_range=True,
+    left=metrics
+  )
   return widget
 
 
@@ -360,7 +372,7 @@ def create_docker_network_widget_v2(stack):
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
   } if stack == 'prod' else {
-    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP",
     "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
 
