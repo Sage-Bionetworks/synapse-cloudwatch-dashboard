@@ -250,8 +250,8 @@ def create_workers_active_connections_widget(title, stack_versions):
 '''
   OpenSearch
 '''
-def create_opensearch_metric(config, stack_version):
-  collection_name = f'prod-{stack_version}-synsearch'
+def create_opensearch_metric(config, stack, stack_version):
+  collection_name = f'{stack}-{stack_version}-synsearch'
   collection_id = config[f'{stack_version}-opensearch-collection-id'][0]
   metric = cw.Metric(
     namespace="AWS/AOSS",
@@ -265,8 +265,8 @@ def create_opensearch_metric(config, stack_version):
   return metric
 
 
-def create_opensearch_widget(title, config, stack_versions):
-  metrics = [create_opensearch_metric(config, sv) for sv in stack_versions]
+def create_opensearch_widget(title, config, stack, stack_versions):
+  metrics = [create_opensearch_metric(config, stack, sv) for sv in stack_versions]
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -326,10 +326,13 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 
   return widget
 
-def create_docker_cpu_widget_v2():
+def create_docker_cpu_widget_v2(stack):
   DIMENSIONS = {
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
+  } if stack == 'prod' else {
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
 
   # CPU utilization
@@ -348,10 +351,13 @@ def create_docker_cpu_widget_v2():
                           left=metrics)
   return widget
 
-def create_docker_network_widget_v2():
+def create_docker_network_widget_v2(stack):
   DIMENSIONS = {
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
+  } if stack == 'prod' else {
+    "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP ",
+    "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
 
   # Network bandwidth metrics
@@ -404,7 +410,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       config = init_config(stack=stack, profile_name=profile_name)
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
-      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack_versions=stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
@@ -424,8 +430,8 @@ class SynapseCloudwatchDashboardStack(Stack):
       workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", config=config, stack_versions=stack_versions, metric_name='% Time Running')
       workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", config=config, stack_versions=stack_versions, metric_name='Cumulative runtime')
       repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
-      docker_cpu_widget = create_docker_cpu_widget_v2()
-      docker_network_widget = create_docker_network_widget_v2()
+      docker_cpu_widget = create_docker_cpu_widget_v2(stack)
+      docker_network_widget = create_docker_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
       rds_write_throughput_widget = create_rds_write_throughput_widget(title="RDS Write Throughput", stack=stack, stack_versions=stack_versions)
       rds_read_latency_widget = create_rds_read_latency_widget(title="RDS Read Latency", stack=stack, stack_versions=stack_versions)
