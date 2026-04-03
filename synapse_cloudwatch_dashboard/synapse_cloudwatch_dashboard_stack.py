@@ -466,6 +466,8 @@ class SynapseCloudwatchDashboardStack(Stack):
       repo_version = stack_versions[0]
       workers_version = stack_versions[1]
       portal_version = stack_versions[2]
+      
+      beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
@@ -475,24 +477,28 @@ class SynapseCloudwatchDashboardStack(Stack):
       ses_widget = create_ses_widget(title='SES')
       rds_cpu_widget = create_rds_cpu_utilization_widget(title='RDS - CPU Utilization', stack=stack, stack_versions=stack_versions)
       rds_freestorage_widget = create_rds_free_storage_space_widget(title='RDS - Free Storage Space', stack=stack, stack_versions=stack_versions)
-      repo_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-repo-ec2-instances', [])]
-      cpu_repo_widget = create_ec2_cpu_utilization_widget(title="Repo - CPU Utilization", ec2_instance_ids=repo_ec2_ids)
-      cpu_repo_ecs_widget = create_ecs_cpu_widget("Repo Services" {"ServiceName":f"repo-{stack}-{repo_version}"}})
-      workers_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-workers-ec2-instances', [])]
-      cpu_workers_widget = create_ec2_cpu_utilization_widget(title="Workers - CPU Utilization", ec2_instance_ids=workers_ec2_ids)
-      cpu_workers_ecs_widget = create_ecs_cpu_widget("Worker Services" {"ServiceName":f"repo-{stack}-{workers_version}"}})
-      portal_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-portal-ec2-instances', [])]
-      cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
-      cpu_portal_ecs_widget = create_ecs_cpu_widget("Portal Services" {"ServiceName":f"repo-{stack}-{portal_version}"}})
-      network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
-      # TODO create 'network out' widget for portal services
+      if beanstalk_mode:
+        repo_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-repo-ec2-instances', [])]
+        cpu_repo_widget = create_ec2_cpu_utilization_widget(title="Repo - CPU Utilization", ec2_instance_ids=repo_ec2_ids)
+        workers_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-workers-ec2-instances', [])]
+        cpu_workers_widget = create_ec2_cpu_utilization_widget(title="Workers - CPU Utilization", ec2_instance_ids=workers_ec2_ids)
+        portal_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-portal-ec2-instances', [])]
+        cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
+        network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
+      else:
+        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", {"ServiceName":f"repo-{stack}-{repo_version}"})
+        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", {"ServiceName":f"repo-{stack}-{workers_version}"})
+        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", {"ServiceName":f"repo-{stack}-{portal_version}"})
+        # TODO create 'network out' widget for portal services
       repo_memory_widget = create_memory_widget(title='Repo - Memory used', config=config, stack_versions=stack_versions, environment='Repository')
       workers_memory_widget = create_memory_widget(title='Workers - Memory used', config=config, stack_versions=stack_versions, environment='Workers')
       workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", config=config, stack_versions=stack_versions, metric_name='Completed Job Count')
       workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", config=config, stack_versions=stack_versions, metric_name='% Time Running')
       workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", config=config, stack_versions=stack_versions, metric_name='Cumulative runtime')
-      repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
-      repo_ecs_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, repo_version)
+      if beanstalk_mode:
+        repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
+      else:
+        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, repo_version)
       registry_ecs_cpu_widget = create_registry_ecs_cpu_widget_v2(stack)
       registry_ecs_network_widget = create_registry_ecs_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
@@ -503,15 +509,15 @@ class SynapseCloudwatchDashboardStack(Stack):
       rds_write_iops_widget = create_rds_write_iops_widget(title="RDS Write Iops", stack=stack, stack_versions=stack_versions)
 
       dashboard.add_widgets(cpu_repo_widget)
-      dashboard.add_widgets(cpu_repo_ecs_widget)
       dashboard.add_widgets(cpu_workers_widget)
-      dashboard.add_widgets(cpu_workers_ecs_widget)
       dashboard.add_widgets(rds_cpu_widget)
       dashboard.add_widgets(rds_freestorage_widget)
       dashboard.add_widgets(cpu_portal_widget)
-      dashboard.add_widgets(cpu_portal_ecs_widget)
-      dashboard.add_widgets(network_out_portal_widget)
-      # TODO display 'network out' widget for portal services
+      if beanstalk_mode:
+        dashboard.add_widgets(network_out_portal_widget)
+      else:
+        pass
+        # TODO display 'network out' widget for portal services
       dashboard.add_widgets(registry_ecs_cpu_widget, registry_ecs_network_widget)
       dashboard.add_widgets(repo_memory_widget)
       dashboard.add_widgets(workers_memory_widget)
@@ -522,7 +528,6 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(workers_cumulative_time_widget)
       dashboard.add_widgets(query_perf_widget)
       dashboard.add_widgets(repo_alb_rtime_widget2)
-      dashboard.add_widgets(repo_ecs_alb_rtime_widget2)
       dashboard.add_widgets(ses_widget)
       dashboard.add_widgets(filescanner_widget)
       dashboard.add_widgets(opensearch_widget)
