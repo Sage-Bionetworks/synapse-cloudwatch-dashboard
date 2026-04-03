@@ -326,13 +326,13 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 
   return widget
 
-def create_repo_ecs_alb_response_widget_v2(title, stack, repo_version):
+def create_repo_ecs_alb_response_widget_v2(title, stack, repo_beanstalk_number):
   metrics = []
   
-  # The LB name is repo-{stack}-{repo_version}
-  # but the metric is like LoadBalancer=app/repo-{stack}-{repo_version}/bfe76ada85368a80
+  # The LB name is repo-{stack}-{repo_beanstalk_number}
+  # but the metric is like LoadBalancer=app/repo-{stack}-{repo_beanstalk_number}/bfe76ada85368a80
   # so we need to know the suffix; the following is wrong:
-  dv = f"repo-{stack}-{repo_version}"
+  dv = f"repo-{stack}-{repo_beanstalk_number}"
 
   metric1 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -340,7 +340,7 @@ def create_repo_ecs_alb_response_widget_v2(title, stack, repo_version):
       dimensions_map={'LoadBalancer': dv},
       period=Duration.seconds(300),
       statistic='Average',
-      label=f'{repo_version} - Average'
+      label=f'{repo_beanstalk_number} - Average'
   )
   metric2 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -348,7 +348,7 @@ def create_repo_ecs_alb_response_widget_v2(title, stack, repo_version):
       dimensions_map={'LoadBalancer': dv},
       period=Duration.seconds(300),
       statistic='p95',
-      label=f'{repo_version} - p95'
+      label=f'{repo_beanstalk_number} - p95'
   )
   metrics.append(metric1)
   metrics.append(metric2)
@@ -463,9 +463,16 @@ class SynapseCloudwatchDashboardStack(Stack):
 
       config = init_config(stack=stack, profile_name=profile_name)
       
-      repo_version = stack_versions[0]
-      workers_version = stack_versions[1]
-      portal_version = stack_versions[2]
+      beanstalk_numbers_str = self.node.try_get_context(key='beanstalk_numbers')
+      
+      if beanstalk_numbers_str is None:
+        raise ValueError('No beanstalk numbers specified')
+        
+      beanstalk_numbers = beanstalk_numbers_str.split(',')
+      repo_beanstalk_number = beanstalk_numbers[0]
+      workers_beanstalk_number = beanstalk_numbers[1]
+      portal_beanstalk_number = beanstalk_numbers[2]
+      
       
       beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
 
@@ -486,9 +493,9 @@ class SynapseCloudwatchDashboardStack(Stack):
         cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
         network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
       else:
-        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", {"ServiceName":f"repo-{stack}-{repo_version}"})
-        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", {"ServiceName":f"repo-{stack}-{workers_version}"})
-        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", {"ServiceName":f"repo-{stack}-{portal_version}"})
+        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", {"ServiceName":f"repo-{stack}-{repo_beanstalk_number}"})
+        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", {"ServiceName":f"repo-{stack}-{workers_beanstalk_number}"})
+        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", {"ServiceName":f"repo-{stack}-{portal_beanstalk_number}"})
         # TODO create 'network out' widget for portal services
       repo_memory_widget = create_memory_widget(title='Repo - Memory used', config=config, stack_versions=stack_versions, environment='Repository')
       workers_memory_widget = create_memory_widget(title='Workers - Memory used', config=config, stack_versions=stack_versions, environment='Workers')
@@ -498,7 +505,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       if beanstalk_mode:
         repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
       else:
-        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, repo_version)
+        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, repo_beanstalk_number)
       registry_ecs_cpu_widget = create_registry_ecs_cpu_widget_v2(stack)
       registry_ecs_network_widget = create_registry_ecs_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
