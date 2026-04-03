@@ -475,6 +475,8 @@ class SynapseCloudwatchDashboardStack(Stack):
       
       
       beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
+      
+      print(f"stack: {stack} stack_versions: {stack_versions} beanstalk_numbers: {beanstalk_numbers_str} beanstalk_mode: {beanstalk_mode}")
 
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
