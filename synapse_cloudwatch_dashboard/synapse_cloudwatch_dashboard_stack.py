@@ -6,6 +6,7 @@ from aws_cdk import (
     aws_cloudwatch as cw
 )
 from constructs import Construct
+import ast
 
 
 def init_config(stack, profile_name):
@@ -475,6 +476,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       
       
       beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
+      beanstalk_mode=ast.literal_eval(beanstalk_mode) 
       
       print(f"stack: {stack} stack_versions: {stack_versions} beanstalk_numbers: {beanstalk_numbers_str} beanstalk_mode: {beanstalk_mode}")
 
