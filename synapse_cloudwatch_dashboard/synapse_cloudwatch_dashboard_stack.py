@@ -376,10 +376,10 @@ def create_registry_ecs_cpu_widget_v2(stack):
   widget = create_ecs_cpu_widget("Docker Registry", DIMENSIONS)
   return widget
 
-def create_ecs_cpu_widget(title, dimensions):
+def create_ecs_cpu_widget(title, dimensions): # TODO pass in list of dimensions
   # Prefer ECS/ContainerInsights metrics if available
   # Container Insights metrics: CpuUtilized, CpuReserved, etc.
-  cpu_utilized = cw.Metric(
+  cpu_utilized = cw.Metric( # TODO make a pair of metrics for each entry in the dimensions list
     namespace="ECS/ContainerInsights",
     metric_name="CpuUtilized",
     dimensions_map=dimensions,
@@ -393,7 +393,7 @@ def create_ecs_cpu_widget(title, dimensions):
     statistic="Average",
     region="us-east-1"
   )
-  metrics = [cpu_utilized, cpu_reserved]
+  metrics = [cpu_utilized, cpu_reserved] # TODO add all metrics here
   widget = cw.GraphWidget(
     title=title+" - CPU Utilization vs Reserved",
     width=12,
@@ -436,6 +436,12 @@ def create_registry_ecs_network_widget_v2(stack):
                           left=metrics)
   return widget
 
+# stack: dev or prod
+# service: repo, workers, or portal
+# version: e.g., 582
+# Note: assumes beanstalk number of 0
+def create_ecs_dimensions(stack, service, version):
+	return {"ClusterName":f"synapse-{stack}-{version}.", "ServiceName":f"{service}-{stack}-{version}-0"}
 
 class SynapseCloudwatchDashboardStack(Stack):
 
@@ -466,20 +472,18 @@ class SynapseCloudwatchDashboardStack(Stack):
       
       beanstalk_numbers_str = self.node.try_get_context(key='beanstalk_numbers')
       
-      if beanstalk_numbers_str is None:
-        raise ValueError('No beanstalk numbers specified')
+      #if beanstalk_numbers_str is None:
+      #  raise ValueError('No beanstalk numbers specified')
         
-      beanstalk_numbers = beanstalk_numbers_str.split(',')
-      repo_beanstalk_number = beanstalk_numbers[0]
-      workers_beanstalk_number = beanstalk_numbers[1]
-      portal_beanstalk_number = beanstalk_numbers[2]
+      #beanstalk_numbers = beanstalk_numbers_str.split(',')
+      #repo_beanstalk_number = beanstalk_numbers[0]
+      #workers_beanstalk_number = beanstalk_numbers[1]
+      #portal_beanstalk_number = beanstalk_numbers[2]
       
       
       beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
       beanstalk_mode=ast.literal_eval(beanstalk_mode) 
       
-      print(f"stack: {stack} stack_versions: {stack_versions} beanstalk_numbers: {beanstalk_numbers_str} beanstalk_mode: {beanstalk_mode}")
-
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
@@ -497,9 +501,9 @@ class SynapseCloudwatchDashboardStack(Stack):
         cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
         network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
       else:
-        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", {"ServiceName":f"repo-{stack}-{repo_beanstalk_number}"})
-        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", {"ServiceName":f"repo-{stack}-{workers_beanstalk_number}"})
-        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", {"ServiceName":f"repo-{stack}-{portal_beanstalk_number}"})
+        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", create_ecs_dimensions(stack, 'repo', stack_versions[0]))
+        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", create_ecs_dimensions(stack, 'workers', stack_versions[0]))
+        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", create_ecs_dimensions(stack, 'portal', stack_versions[0]))
         # TODO create 'network out' widget for portal services
       repo_memory_widget = create_memory_widget(title='Repo - Memory used', config=config, stack_versions=stack_versions, environment='Repository')
       workers_memory_widget = create_memory_widget(title='Workers - Memory used', config=config, stack_versions=stack_versions, environment='Workers')
@@ -509,7 +513,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       if beanstalk_mode:
         repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
       else:
-        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, repo_beanstalk_number)
+        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, stack_versions[0]+"-0")
       registry_ecs_cpu_widget = create_registry_ecs_cpu_widget_v2(stack)
       registry_ecs_network_widget = create_registry_ecs_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
