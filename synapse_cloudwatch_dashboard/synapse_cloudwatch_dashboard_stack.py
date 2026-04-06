@@ -441,7 +441,7 @@ def create_registry_ecs_network_widget_v2(stack):
 # version: e.g., 582
 # Note: assumes beanstalk number of 0
 def create_ecs_dimensions(stack, service, version):
-	return {"ClusterName":f"synapse-{stack}-{version}.", "ServiceName":f"{service}-{stack}-{version}-0"}
+	return {"ClusterName":f"synapse-{stack}-{version}", "ServiceName":f"{service}-{stack}-{version}-0"}
 
 class SynapseCloudwatchDashboardStack(Stack):
 
