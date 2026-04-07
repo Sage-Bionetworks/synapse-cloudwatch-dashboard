@@ -570,17 +570,22 @@ class SynapseCloudwatchDashboardStack(Stack):
     	return result
 
     def version_to_lb_name_map(self, service, stack, stack_versions):
-      response = self.cw_client.list_metrics(
-        Namespace="AWS/ApplicationELB", 
-        MetricName="TargetResponseTime")
-      result = {}
-      # TODO paginate
-      for metric in response.get('Metrics',[]):
-        for dimension in metric.get('Dimensions',[]):
-          if "LoadBalancer"==dimension.get('Name',None):
-            lb_name=dimension['Value']
-            for stack_version in stack_versions:
-              if lb_name.startswith(f"app/{service}-{stack}-{stack_version}-0"):
-                result[stack_version]=lb_name
+      next_token=None
+      while (True):
+        response = self.cw_client.list_metrics(
+          Namespace="AWS/ApplicationELB", 
+          MetricName="TargetResponseTime",
+          NextToken=next_token)
+        result = {}
+        for metric in response.get('Metrics',[]):
+          for dimension in metric.get('Dimensions',[]):
+            if "LoadBalancer"==dimension.get('Name',None):
+              lb_name=dimension['Value']
+              for stack_version in stack_versions:
+                if lb_name.startswith(f"app/{service}-{stack}-{stack_version}-0"):
+                  result[stack_version]=lb_name
+        next_token = response.get("NextToken",None)
+        if next_token is None:
+          break
       return result
 
