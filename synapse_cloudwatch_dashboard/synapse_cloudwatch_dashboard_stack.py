@@ -6,16 +6,18 @@ from aws_cdk import (
     aws_cloudwatch as cw
 )
 from constructs import Construct
+import ast
 
-
-def init_config(stack, profile_name):
-  BUCKET_NAME = f'{stack}.cloudwatch.metrics.sagebase.org'
-  FILE_KEY = f'{stack}_cw_configuration.json'
+def get_aws_provider(profile_name):
   if profile_name:
     session = boto3.Session(profile_name=profile_name, region_name='us-east-1')
   else:
     session = boto3.Session(region_name='us-east-1')
-  aws_provider = AwsProvider(session=session)
+  return AwsProvider(session=session)
+
+def init_config(stack, aws_provider):
+  BUCKET_NAME = f'{stack}.cloudwatch.metrics.sagebase.org'
+  FILE_KEY = f'{stack}_cw_configuration.json'
   s3_client = aws_provider.get_client(client_type='s3')
   configuration_provider = ConfigurationProvider(s3_client=s3_client, bucket_name=BUCKET_NAME, file_key=FILE_KEY)
   config = configuration_provider.load_raw_configuration()
@@ -326,7 +328,45 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 
   return widget
 
-def create_docker_cpu_widget_v2(stack):
+# title: title for the widget
+# stack: dev or prod
+# version_lb_name_map: e.g.: {"582":"app/repo-dev-582-0/d415d054e3532643"}
+def create_repo_ecs_alb_response_widget_v2(title, stack, version_lb_name_map):
+  metrics = []
+  for stack_version in version_lb_name_map:
+    lb_name=version_lb_name_map[stack_version]
+
+    metric1 = cw.Metric(
+      namespace='AWS/ApplicationELB',
+      metric_name='TargetResponseTime',
+      dimensions_map={'LoadBalancer': lb_name},
+      period=Duration.seconds(300),
+      statistic='Average',
+      label=f'{stack_version}-0 - Average'
+    )
+    metric2 = cw.Metric(
+      namespace='AWS/ApplicationELB',
+      metric_name='TargetResponseTime',
+      dimensions_map={'LoadBalancer': lb_name},
+      period=Duration.seconds(300),
+      statistic='p95',
+      label=f'{stack_version}-0 - p95'
+    )
+    metrics.append(metric1)
+    metrics.append(metric2)
+
+  widget = cw.GraphWidget(
+    title=title,
+    width=24,
+    height=4,
+    view=cw.GraphWidgetView.TIME_SERIES,
+    stacked=False,
+    set_period_to_time_range=True,
+    left=metrics
+  )
+  return widget
+
+def create_registry_ecs_cpu_widget_v2(stack):
   DIMENSIONS = {
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
@@ -334,30 +374,35 @@ def create_docker_cpu_widget_v2(stack):
     "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP",
     "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
-  widget = create_ecs_cpu_widget(DIMENSIONS)
+  widget = create_ecs_cpu_widget("Docker Registry", [{"dimensions":DIMENSIONS,"label":"Docker Registry"}])
   return widget
 
-def create_ecs_cpu_widget(dimensions):
+def create_ecs_cpu_widget(title, dimensions_and_labels_list, width=12):
   # Prefer ECS/ContainerInsights metrics if available
   # Container Insights metrics: CpuUtilized, CpuReserved, etc.
-  cpu_utilized = cw.Metric(
-    namespace="ECS/ContainerInsights",
-    metric_name="CpuUtilized",
-    dimensions_map=dimensions,
-    statistic="Average",
-    region="us-east-1"
-  )
-  cpu_reserved = cw.Metric(
-    namespace="ECS/ContainerInsights",
-    metric_name="CpuReserved",
-    dimensions_map=dimensions,
-    statistic="Average",
-    region="us-east-1"
-  )
-  metrics = [cpu_utilized, cpu_reserved]
+  
+  metrics = []
+  for dimensions_and_label in dimensions_and_labels_list:
+    cpu_utilized = cw.Metric(
+      namespace="ECS/ContainerInsights",
+      metric_name="CpuUtilized",
+      label=f"CpuUtilized-{dimensions_and_label['label']}",
+      dimensions_map=dimensions_and_label["dimensions"],
+      statistic="Average",
+      region="us-east-1"
+    )
+    cpu_reserved = cw.Metric(
+      namespace="ECS/ContainerInsights",
+      metric_name="CpuReserved",
+      label=f"CpuReserved-{dimensions_and_label['label']}",
+      dimensions_map=dimensions_and_label["dimensions"],
+      statistic="Average",
+      region="us-east-1"
+    )
+    metrics.extend([cpu_utilized, cpu_reserved])
   widget = cw.GraphWidget(
-    title="ECS Container Insights - CPU Utilization vs Reserved",
-    width=12,
+    title=title+" - CPU Utilization vs Reserved",
+    width=width,
     height=4,
     view=cw.GraphWidgetView.TIME_SERIES,
     stacked=False,
@@ -367,7 +412,7 @@ def create_ecs_cpu_widget(dimensions):
   return widget
 
 
-def create_docker_network_widget_v2(stack):
+def create_registry_ecs_network_widget_v2(stack):
   DIMENSIONS = {
     "ServiceName": "registry-prod-DockerFargateStack-registryprodServiceAFB525D2-UYnZR5jh3Dqx",
     "ClusterName": "registry-prod-DockerFargateStack-registryprodDockerFargateStackCluster47F74A14-MGrtooDf35X9",
@@ -375,28 +420,33 @@ def create_docker_network_widget_v2(stack):
     "ServiceName": "registry-dev-DockerFargateStack-registrydevService896F8BD4-GC9L2E0ibdbP",
     "ClusterName": "registry-dev-DockerFargateStack-registrydevDockerFargateStackCluster83B3D290-XhfK58ULXLP4",
   }
-
-  # Network bandwidth metrics
-  network_rx = cw.Metric(
-    namespace="ECS/ContainerInsights",
-    metric_name="NetworkRxBytes",
-    dimensions_map=DIMENSIONS,
-    statistic="Sum",
-    region="us-east-1"
-  )
-  network_tx = cw.Metric(
-    namespace="ECS/ContainerInsights",
-    metric_name="NetworkTxBytes",
-    dimensions_map=DIMENSIONS,
-    statistic="Sum",
-    region="us-east-1"
-  )
-  metrics = [network_rx, network_tx]
-  widget = cw.GraphWidget(title="Docker - Network utilization", width=12, height=4, view=cw.GraphWidgetView.TIME_SERIES,
+  return create_ecs_network_out_widget([{"dimensions":DIMENSIONS,"label":"Docker Registry"}], title="Docker Registry - Network utilization")
+  
+def create_ecs_network_out_widget(dimensions_and_labels_list, title, width=12):
+  metrics = []
+  for dimensions_and_label in dimensions_and_labels_list:
+    # Network bandwidth metrics
+    network_rx = cw.Metric(
+      namespace="ECS/ContainerInsights",
+      metric_name="NetworkRxBytes",
+      label=f"NetworkRxBytes-{dimensions_and_label['label']}",
+      dimensions_map=dimensions_and_label["dimensions"],
+      statistic="Sum",
+      region="us-east-1"
+    )
+    network_tx = cw.Metric(
+      namespace="ECS/ContainerInsights",
+      metric_name="NetworkTxBytes",
+      label=f"NetworkTxBytes-{dimensions_and_label['label']}",
+      dimensions_map=dimensions_and_label["dimensions"],
+      statistic="Sum",
+      region="us-east-1"
+    )
+    metrics.extend([network_rx, network_tx])
+  widget = cw.GraphWidget(title=title, width=width, height=4, view=cw.GraphWidgetView.TIME_SERIES,
                           stacked=False, set_period_to_time_range=True,
                           left=metrics)
   return widget
-
 
 class SynapseCloudwatchDashboardStack(Stack):
 
@@ -423,8 +473,12 @@ class SynapseCloudwatchDashboardStack(Stack):
         default_interval=Duration.days(35),
       )
 
-      config = init_config(stack=stack, profile_name=profile_name)
-
+      aws_provider = get_aws_provider(profile_name)
+      config = init_config(stack, aws_provider)
+      self.cw_client = aws_provider.get_client(client_type='cloudwatch')
+      beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
+      beanstalk_mode=ast.literal_eval(beanstalk_mode) 
+      
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
@@ -433,21 +487,30 @@ class SynapseCloudwatchDashboardStack(Stack):
       ses_widget = create_ses_widget(title='SES')
       rds_cpu_widget = create_rds_cpu_utilization_widget(title='RDS - CPU Utilization', stack=stack, stack_versions=stack_versions)
       rds_freestorage_widget = create_rds_free_storage_space_widget(title='RDS - Free Storage Space', stack=stack, stack_versions=stack_versions)
-      repo_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-repo-ec2-instances', [])]
-      cpu_repo_widget = create_ec2_cpu_utilization_widget(title="Repo - CPU Utilization", ec2_instance_ids=repo_ec2_ids)
-      workers_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-workers-ec2-instances', [])]
-      cpu_workers_widget = create_ec2_cpu_utilization_widget(title="Workers - CPU Utilization", ec2_instance_ids=workers_ec2_ids)
-      portal_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-portal-ec2-instances', [])]
-      cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
-      network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
+      if beanstalk_mode:
+        repo_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-repo-ec2-instances', [])]
+        cpu_repo_widget = create_ec2_cpu_utilization_widget(title="Repo - CPU Utilization", ec2_instance_ids=repo_ec2_ids)
+        workers_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-workers-ec2-instances', [])]
+        cpu_workers_widget = create_ec2_cpu_utilization_widget(title="Workers - CPU Utilization", ec2_instance_ids=workers_ec2_ids)
+        portal_ec2_ids = [s for vp in stack_versions for s in config.get(f'{vp}-portal-ec2-instances', [])]
+        cpu_portal_widget = create_ec2_cpu_utilization_widget(title="Portal - CPU Utilization", ec2_instance_ids=portal_ec2_ids)
+        network_out_portal_widget = create_ec2_network_out_widget(title="Portal - Network out", ec2_instance_ids=portal_ec2_ids)
+      else:
+        cpu_repo_widget = create_ecs_cpu_widget("Repo Services", self.create_ecs_dimensions(stack, 'repo', stack_versions), width=24)
+        cpu_workers_widget = create_ecs_cpu_widget("Worker Services", self.create_ecs_dimensions(stack, 'workers', stack_versions), width=24)
+        cpu_portal_widget = create_ecs_cpu_widget("Portal Services", self.create_ecs_dimensions(stack, 'portal', stack_versions), width=24)
+        network_out_portal_widget = create_ecs_network_out_widget(self.create_ecs_dimensions(stack, 'portal', stack_versions), title="Portal - Network out", width=24)
       repo_memory_widget = create_memory_widget(title='Repo - Memory used', config=config, stack_versions=stack_versions, environment='Repository')
       workers_memory_widget = create_memory_widget(title='Workers - Memory used', config=config, stack_versions=stack_versions, environment='Workers')
       workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", config=config, stack_versions=stack_versions, metric_name='Completed Job Count')
       workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", config=config, stack_versions=stack_versions, metric_name='% Time Running')
       workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", config=config, stack_versions=stack_versions, metric_name='Cumulative runtime')
-      repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
-      docker_cpu_widget = create_docker_cpu_widget_v2(stack)
-      docker_network_widget = create_docker_network_widget_v2(stack)
+      if beanstalk_mode:
+        repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
+      else:
+        repo_alb_rtime_widget2 = create_repo_ecs_alb_response_widget_v2('Repo ECS ALB response time', stack, self.version_to_lb_name_map("repo", stack, stack_versions))
+      registry_ecs_cpu_widget = create_registry_ecs_cpu_widget_v2(stack)
+      registry_ecs_network_widget = create_registry_ecs_network_widget_v2(stack)
       rds_read_throughput_widget = create_rds_read_throughput_widget(title="RDS Read Throughput", stack=stack, stack_versions=stack_versions)
       rds_write_throughput_widget = create_rds_write_throughput_widget(title="RDS Write Throughput", stack=stack, stack_versions=stack_versions)
       rds_read_latency_widget = create_rds_read_latency_widget(title="RDS Read Latency", stack=stack, stack_versions=stack_versions)
@@ -461,7 +524,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(rds_freestorage_widget)
       dashboard.add_widgets(cpu_portal_widget)
       dashboard.add_widgets(network_out_portal_widget)
-      dashboard.add_widgets(docker_cpu_widget, docker_network_widget)
+      dashboard.add_widgets(registry_ecs_cpu_widget, registry_ecs_network_widget)
       dashboard.add_widgets(repo_memory_widget)
       dashboard.add_widgets(workers_memory_widget)
       dashboard.add_widgets(repo_active_connections_widget)
@@ -478,4 +541,62 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(rds_read_latency_widget, rds_write_latency_widget)
       dashboard.add_widgets(rds_read_iops_widget, rds_write_iops_widget)
 
+    # Use the CloudWatch client to look up the ECS Task IDs associated with an ECS Service
+    def get_ecs_task_ids(self, service_name):
+      response = self.cw_client.list_metrics(
+        Namespace="ECS/ContainerInsights", 
+        MetricName="TaskCpuUtilization",
+        Dimensions=[{"Name":"ServiceName","Value":service_name}])
+      result=set()
+      for metric in response.get('Metrics',[]):
+        for dimension in metric.get('Dimensions',[]):
+          if "TaskId"==dimension.get('Name',None):
+            result.add(dimension['Value'])
+      return result
+
+    # Create the dimensions for ECS metrics, given the stack, service, and version list
+    #
+    # stack: dev or prod
+    # service: repo, workers, or portal
+    # versions: e.g., [582,583]
+    # Note: assumes beanstalk number of 0
+    def create_ecs_dimensions(self, stack, service, versions):
+    	result = []
+    	for version in versions:
+    		service_name=f"{service}-{stack}-{version}-0"
+    		for task_id in self.get_ecs_task_ids(service_name):
+    			dimensions={
+    				"ClusterName":f"synapse-{stack}-{version}", 
+    				"ServiceName":service_name,
+    				"TaskId":task_id}
+    			label=f"{version}-{task_id}"
+    			result.append({"dimensions":dimensions, "label":label})
+    	return result
+
+    # Look up the Load Balancer names for Synapse stack versions,
+    # returning a map from the latter to the former
+    def version_to_lb_name_map(self, service, stack, stack_versions):
+      next_token=None
+      result = {}
+      while (True):
+        if next_token==None:
+          response = self.cw_client.list_metrics(
+            Namespace="AWS/ApplicationELB", 
+            MetricName="TargetResponseTime")
+        else:
+           response = self.cw_client.list_metrics(
+            Namespace="AWS/ApplicationELB", 
+            MetricName="TargetResponseTime",
+            NextToken=next_token)
+        for metric in response.get('Metrics',[]):
+          for dimension in metric.get('Dimensions',[]):
+            if "LoadBalancer"==dimension.get('Name',None):
+              lb_name=dimension['Value']
+              for stack_version in stack_versions:
+                if lb_name.startswith(f"app/{service}-{stack}-{stack_version}-0"):
+                  result[stack_version]=lb_name
+        next_token = response.get("NextToken",None)
+        if next_token is None:
+          break
+      return result
 
