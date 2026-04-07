@@ -328,12 +328,13 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 
   return widget
 
+# title: title for the widget
+# stack: dev or prod
+# version_lb_name_map: e.g.: {"582":"app/repo-dev-582-0/d415d054e3532643"}
 def create_repo_ecs_alb_response_widget_v2(title, stack, version_lb_name_map):
   metrics = []
-  print(f"Size of version_lb_name_map is {len(version_lb_name_map)}")
   for stack_version in version_lb_name_map:
     lb_name=version_lb_name_map[stack_version]
-    print(f"For stack version {stack_version}, load balancer name is {lb_name}.")
 
     metric1 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -540,6 +541,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       dashboard.add_widgets(rds_read_latency_widget, rds_write_latency_widget)
       dashboard.add_widgets(rds_read_iops_widget, rds_write_iops_widget)
 
+    # Use the CloudWatch client to look up the ECS Task IDs associated with an ECS Service
     def get_ecs_task_ids(self, service_name):
       response = self.cw_client.list_metrics(
         Namespace="ECS/ContainerInsights", 
@@ -552,6 +554,8 @@ class SynapseCloudwatchDashboardStack(Stack):
             result.add(dimension['Value'])
       return result
 
+    # Create the dimensions for ECS metrics, given the stack, service, and version list
+    #
     # stack: dev or prod
     # service: repo, workers, or portal
     # versions: e.g., [582,583]
@@ -569,6 +573,8 @@ class SynapseCloudwatchDashboardStack(Stack):
     			result.append({"dimensions":dimensions, "label":label})
     	return result
 
+    # Look up the Load Balancer names for Synapse stack versions,
+    # returning a map from the latter to the former
     def version_to_lb_name_map(self, service, stack, stack_versions):
       next_token=None
       result = {}
