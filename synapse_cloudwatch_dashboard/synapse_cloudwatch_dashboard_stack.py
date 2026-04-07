@@ -571,6 +571,7 @@ class SynapseCloudwatchDashboardStack(Stack):
 
     def version_to_lb_name_map(self, service, stack, stack_versions):
       next_token=None
+      result = {}
       while (True):
         if next_token==None:
           response = self.cw_client.list_metrics(
@@ -581,7 +582,6 @@ class SynapseCloudwatchDashboardStack(Stack):
             Namespace="AWS/ApplicationELB", 
             MetricName="TargetResponseTime",
             NextToken=next_token)
-       result = {}
         for metric in response.get('Metrics',[]):
           for dimension in metric.get('Dimensions',[]):
             if "LoadBalancer"==dimension.get('Name',None):
