@@ -252,6 +252,7 @@ def create_workers_active_connections_widget(title, stack_versions):
 '''
 def create_opensearch_metric(collection_ids, stack, stack_version):
   collection_name = f'{stack}-{stack_version}-synsearch'
+  result = []
   for collection_id in collection_ids:
     metric = cw.Metric(
       namespace="AWS/AOSS",
@@ -260,16 +261,17 @@ def create_opensearch_metric(collection_ids, stack, stack_version):
         "CollectionId": collection_id,
         "CollectionName": collection_name,
         "ClientId": os.environ.get("CDK_DEFAULT_ACCOUNT")},
-      "label": f"{stack}-{stack_version}",
+      label=f"{stack}-{stack_version}",
       region="us-east-1"
     )
-  return metric
+    result.append(metric)
+  return result
 
 
 def create_opensearch_widget(title, collection_id_map, stack):
   metrics = []
   for sv in collection_id_map:
-    metrics.append(create_opensearch_metric(collection_id_map[sv], stack, sv))
+    metrics.extend(create_opensearch_metric(collection_id_map[sv], stack, sv))
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
