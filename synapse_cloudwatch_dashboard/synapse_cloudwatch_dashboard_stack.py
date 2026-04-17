@@ -41,7 +41,7 @@ def create_worker_stats_widget(title, stack_versions_to_worker_names_map, metric
   for sv in stack_versions_to_worker_names_map:
     namespace = f'Worker-Statistics-{sv}'
     version_metrics = [cw.Metric(namespace=namespace, metric_name=metric_name,
-        dimensions_map={"Worker Name": value}) for value in stack_versions_to_worker_names_map[sv]]
+        dimensions_map={"Worker Name": worker_name}) for worker_name in stack_versions_to_worker_names_map[sv]]
       
     metrics.extend(version_metrics)
   return cw.GraphWidget(title=title, width=24, height=3,
@@ -258,6 +258,7 @@ def create_opensearch_metric(collection_id, stack, stack_version):
     dimensions_map={
       "CollectionId": collection_id,
       "CollectionName": collection_name,
+      "label": f"{stack}-{stack_version}",
       "ClientId": os.environ.get("CDK_DEFAULT_ACCOUNT")},
     region="us-east-1"
   )
