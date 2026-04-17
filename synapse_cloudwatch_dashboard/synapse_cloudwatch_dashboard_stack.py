@@ -250,18 +250,19 @@ def create_workers_active_connections_widget(title, stack_versions):
 '''
   OpenSearch
 '''
-def create_opensearch_metric(collection_id, stack, stack_version):
+def create_opensearch_metric(collection_ids, stack, stack_version):
   collection_name = f'{stack}-{stack_version}-synsearch'
-  metric = cw.Metric(
-    namespace="AWS/AOSS",
-    metric_name="SearchableDocuments",
-    dimensions_map={
-      "CollectionId": collection_id,
-      "CollectionName": collection_name,
+  for collection_id in collection_ids:
+    metric = cw.Metric(
+      namespace="AWS/AOSS",
+      metric_name="SearchableDocuments",
+      dimensions_map={
+        "CollectionId": collection_id,
+        "CollectionName": collection_name,
+        "ClientId": os.environ.get("CDK_DEFAULT_ACCOUNT")},
       "label": f"{stack}-{stack_version}",
-      "ClientId": os.environ.get("CDK_DEFAULT_ACCOUNT")},
-    region="us-east-1"
-  )
+      region="us-east-1"
+    )
   return metric
 
 
@@ -653,8 +654,9 @@ class SynapseCloudwatchDashboardStack(Stack):
       for sv in stack_versions:
         name=f"{stack}-{sv}-synsearch"
         response = self.os_client.list_collections(collectionFilters={"name":name})
+        result[sv]=[]
         for collectionSummary in response.get('collectionSummaries',[]):
           if name==collectionSummary.get('name',None):
-            result[sv]=collectionSummary['id']
+            result[sv].append(collectionSummary['id'])
       return result
 
