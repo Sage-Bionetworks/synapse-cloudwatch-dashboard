@@ -460,7 +460,10 @@ class SynapseCloudwatchDashboardStack(Stack):
       # Profile name can be undefined if run on EC2
       profile_name = self.node.try_get_context(key='profile_name')
 
-      stack_versions = stack_versions_str.split(',')
+      stack_versions = []
+      for s in stack_versions_str.split(','):
+        if s is not None and len(s)>0:
+          stack_versions.append(s)
 
       beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
       beanstalk_mode=ast.literal_eval(beanstalk_mode) 
