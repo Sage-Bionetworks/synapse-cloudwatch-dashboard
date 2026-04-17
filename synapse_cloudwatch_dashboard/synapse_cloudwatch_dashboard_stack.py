@@ -7,6 +7,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 import ast
+import os
 
 def get_aws_provider(profile_name):
   if profile_name:
@@ -35,28 +36,24 @@ def create_graph_widget(namespace, metric_name, dimension_name, values, title='T
   widget = cw.GraphWidget(title=title, width=width, height=height, stacked=False, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
-
-def create_worker_stats_widget(title, config, stack_versions, metric_name):
+def create_worker_stats_widget(title, stack_versions_to_worker_names_map, stack_versions, metric_name):
   metrics = []
   for sv in stack_versions:
     namespace = f'Worker-Statistics-{sv}'
-    config_key = f'{sv}-workers-names'
     version_metrics = [cw.Metric(namespace=namespace, metric_name=metric_name,
-                        dimensions_map={"Worker Name": value}) for value in config[config_key]]
+                        dimensions_map={"Worker Name": value}) for value in stack_versions_to_worker_names_map[sv]]
     metrics.extend(version_metrics)
   return cw.GraphWidget(title=title, width=24, height=3,
                         view=cw.GraphWidgetView.TIME_SERIES, stacked=False, period=Duration.seconds(300),
                         left=metrics)
 
 
-def create_memory_widget(title, config, stack_versions, environment):
-  ENV_KEYS = {"Repository": "repo", "Workers": "workers"}
+def create_memory_widget(title, stack_versions, environment):
   metrics = []
   for sv in stack_versions:
     namespace = f'{environment}-Memory-{sv}'
-    config_key = f'{sv}-{ENV_KEYS[environment]}-vmids'
     version_metrics = [cw.Metric(namespace=namespace, metric_name='used',
-                        dimensions_map={"instance": value}) for value in config[config_key]]
+                        dimensions_map={"instance": value}) for value in ['all']]
     metrics.extend(version_metrics)
   return cw.GraphWidget(title=title, width=24, height=3,
                         view=cw.GraphWidgetView.TIME_SERIES, stacked=False, period=Duration.seconds(300),
@@ -252,23 +249,22 @@ def create_workers_active_connections_widget(title, stack_versions):
 '''
   OpenSearch
 '''
-def create_opensearch_metric(config, stack, stack_version):
+def create_opensearch_metric(collection_id, stack, stack_version):
   collection_name = f'{stack}-{stack_version}-synsearch'
-  collection_id = config[f'{stack_version}-opensearch-collection-id'][0]
   metric = cw.Metric(
     namespace="AWS/AOSS",
     metric_name="SearchableDocuments",
     dimensions_map={
       "CollectionId": collection_id,
       "CollectionName": collection_name,
-      "ClientId": "325565585839"},
+      "ClientId": os.environ.get("CDK_DEFAULT_ACCOUNT")},
     region="us-east-1"
   )
   return metric
 
 
-def create_opensearch_widget(title, config, stack, stack_versions):
-  metrics = [create_opensearch_metric(config, stack, sv) for sv in stack_versions]
+def create_opensearch_widget(title, collection_id_map, stack, stack_versions):
+  metrics = [create_opensearch_metric(collection_id_map[sv], stack, sv) for sv in stack_versions]
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -466,6 +462,9 @@ class SynapseCloudwatchDashboardStack(Stack):
 
       stack_versions = stack_versions_str.split(',')
 
+      beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
+      beanstalk_mode=ast.literal_eval(beanstalk_mode) 
+
       dashboard = cw.Dashboard(
         self,
         id="stack-status",
@@ -474,13 +473,14 @@ class SynapseCloudwatchDashboardStack(Stack):
       )
 
       aws_provider = get_aws_provider(profile_name)
-      config = init_config(stack, aws_provider)
+      if beanstalk_mode:
+        config = init_config(stack, aws_provider)
       self.cw_client = aws_provider.get_client(client_type='cloudwatch')
-      beanstalk_mode=self.node.try_get_context(key='beanstalk_mode')
-      beanstalk_mode=ast.literal_eval(beanstalk_mode) 
+      self.os_client = aws_provider.get_client(client_type='opensearchserverless')
       
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
-      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', config=config, stack=stack, stack_versions=stack_versions)
+      collection_id_map = self.version_to_opesearch_collection_id_map(stack, stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', collection_id_map=collection_id_map, stack=stack, stack_versions=stack_versions)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
@@ -500,11 +500,12 @@ class SynapseCloudwatchDashboardStack(Stack):
         cpu_workers_widget = create_ecs_cpu_widget("Worker Services", self.create_ecs_dimensions(stack, 'workers', stack_versions), width=24)
         cpu_portal_widget = create_ecs_cpu_widget("Portal Services", self.create_ecs_dimensions(stack, 'portal', stack_versions), width=24)
         network_out_portal_widget = create_ecs_network_out_widget(self.create_ecs_dimensions(stack, 'portal', stack_versions), title="Portal - Network out", width=24)
-      repo_memory_widget = create_memory_widget(title='Repo - Memory used', config=config, stack_versions=stack_versions, environment='Repository')
-      workers_memory_widget = create_memory_widget(title='Workers - Memory used', config=config, stack_versions=stack_versions, environment='Workers')
-      workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", config=config, stack_versions=stack_versions, metric_name='Completed Job Count')
-      workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", config=config, stack_versions=stack_versions, metric_name='% Time Running')
-      workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", config=config, stack_versions=stack_versions, metric_name='Cumulative runtime')
+      repo_memory_widget = create_memory_widget(title='Repo - Memory used', stack_versions=stack_versions, environment='Repository')
+      workers_memory_widget = create_memory_widget(title='Workers - Memory used', stack_versions=stack_versions, environment='Workers')
+      stack_versions_to_worker_names_map = self.version_to_worker_names_map(stack_versions)
+      workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='Completed Job Count')
+      workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='% Time Running')
+      workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='Cumulative runtime')
       if beanstalk_mode:
         repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
       else:
@@ -573,30 +574,75 @@ class SynapseCloudwatchDashboardStack(Stack):
     			result.append({"dimensions":dimensions, "label":label})
     	return result
 
-    # Look up the Load Balancer names for Synapse stack versions,
+    # Look up any attribute given Synapse stack version,
     # returning a map from the latter to the former
-    def version_to_lb_name_map(self, service, stack, stack_versions):
+    def version_to_attribute_map(self, stack_versions, namespace, attribute_name, metric_name, matching_name_prefix, multi_value):
       next_token=None
       result = {}
       while (True):
         if next_token==None:
           response = self.cw_client.list_metrics(
-            Namespace="AWS/ApplicationELB", 
-            MetricName="TargetResponseTime")
+            Namespace=namespace, 
+            MetricName=metric_name)
         else:
            response = self.cw_client.list_metrics(
-            Namespace="AWS/ApplicationELB", 
-            MetricName="TargetResponseTime",
+            Namespace=namespace, 
+            MetricName=metric_name,
             NextToken=next_token)
         for metric in response.get('Metrics',[]):
           for dimension in metric.get('Dimensions',[]):
-            if "LoadBalancer"==dimension.get('Name',None):
-              lb_name=dimension['Value']
+            if attribute_name==dimension.get('Name',None):
+              attribute_value=dimension['Value']
               for stack_version in stack_versions:
-                if lb_name.startswith(f"app/{service}-{stack}-{stack_version}-0"):
-                  result[stack_version]=lb_name
+                if matching_name_prefix is None or attribute_value.startswith(matching_name_prefix.format(stack_version=stack_version)):
+                  if multi_value:
+                    value_list = result.get(stack_version)
+                    if value_list is None:
+                      value_list = []
+                      result[stack_version]=value_list
+                    value_list.append(attribute_value)
+                  else:
+                    result[stack_version]=attribute_value
         next_token = response.get("NextToken",None)
         if next_token is None:
           break
+      return result
+      
+
+    # Look up the Load Balancer names for Synapse stack versions,
+    # returning a map from the latter to the former
+    def version_to_lb_name_map(self, service, stack, stack_versions):
+      return self.version_to_attribute_map(
+        stack_versions,
+        "AWS/ApplicationELB",
+        "LoadBalancer",
+        "TargetResponseTime",
+        f"app/{service}-{stack}-{{stack_version}}-0",
+        False)
+
+      
+    def version_to_worker_names_map(self, stack_versions):
+      result = {}
+      for sv in stack_versions:
+        result.update( self.version_to_attribute_map(
+          [sv],
+          f"Worker-Statistics-{sv}",
+          "Worker Name",
+          "Cumulative runtime",
+          None,
+          True))
+      return result
+
+
+    # Look up the OpenSearch collection ids for Synapse stack versions,
+    # returning a map from the latter to the former
+    def version_to_opesearch_collection_id_map(self, stack, stack_versions):
+      result = {}
+      for sv in stack_versions:
+        name=f"{stack}-{sv}-synsearch"
+        response = self.os_client.list_collections(collectionFilters={"name":name})
+        for collectionSummary in response.get('collectionSummaries',[]):
+          if name==collectionSummary.get('name',None):
+            result[sv]=collectionSummary['id']
       return result
 
