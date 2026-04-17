@@ -326,11 +326,11 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 
 # title: title for the widget
 # stack: dev or prod
-# version_lb_name_map: e.g.: {"582":"app/repo-dev-582-0/d415d054e3532643"}
-def create_repo_ecs_alb_response_widget_v2(title, stack, version_lb_name_map):
+# version_lb_name_map: e.g.: {"582-0":"app/repo-dev-582-0/d415d054e3532643"}
+def create_repo_ecs_alb_response_widget_v2(title, stack, version_and_incr_lb_name_map):
   metrics = []
-  for stack_version in version_lb_name_map:
-    lb_name=version_lb_name_map[stack_version]
+  for stack_version_and_incr in version_and_incr_lb_name_map:
+    lb_name=version_and_incr_lb_name_map[stack_version_and_incr]
 
     metric1 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -338,7 +338,7 @@ def create_repo_ecs_alb_response_widget_v2(title, stack, version_lb_name_map):
       dimensions_map={'LoadBalancer': lb_name},
       period=Duration.seconds(300),
       statistic='Average',
-      label=f'{stack_version}-0 - Average'
+      label=f'{stack_version_and_incr} - Average'
     )
     metric2 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -346,7 +346,7 @@ def create_repo_ecs_alb_response_widget_v2(title, stack, version_lb_name_map):
       dimensions_map={'LoadBalancer': lb_name},
       period=Duration.seconds(300),
       statistic='p95',
-      label=f'{stack_version}-0 - p95'
+      label=f'{stack_version_and_incr} - p95'
     )
     metrics.append(metric1)
     metrics.append(metric2)
@@ -564,14 +564,15 @@ class SynapseCloudwatchDashboardStack(Stack):
     def create_ecs_dimensions(self, stack, service, versions):
     	result = []
     	for version in versions:
-    		service_name=f"{service}-{stack}-{version}-0"
-    		for task_id in self.get_ecs_task_ids(service_name):
-    			dimensions={
-    				"ClusterName":f"synapse-{stack}-{version}", 
-    				"ServiceName":service_name,
-    				"TaskId":task_id}
-    			label=f"{version}-{task_id}"
-    			result.append({"dimensions":dimensions, "label":label})
+    		for incr in ["0", "1"]:
+    			service_name=f"{service}-{stack}-{version}-{incr}"
+    			for task_id in self.get_ecs_task_ids(service_name):
+    				dimensions={
+    					"ClusterName":f"synapse-{stack}-{version}", 
+    					"ServiceName":service_name,
+    					"TaskId":task_id}
+    				label=f"{version}-{task_id}"
+    				result.append({"dimensions":dimensions, "label":label})
     	return result
 
     # Look up any attribute given Synapse stack version,
@@ -612,12 +613,16 @@ class SynapseCloudwatchDashboardStack(Stack):
     # Look up the Load Balancer names for Synapse stack versions,
     # returning a map from the latter to the former
     def version_to_lb_name_map(self, service, stack, stack_versions):
+      stack_versions_and_incrs = []
+      for stack_version in stack_versions:
+        for incr in ["0", "1"]:
+          stack_versions_and_incrs.append(f"{stack_version}-{incr}")
       return self.version_to_attribute_map(
-        stack_versions,
+        stack_versions_and_incrs,
         "AWS/ApplicationELB",
         "LoadBalancer",
         "TargetResponseTime",
-        f"app/{service}-{stack}-{{stack_version}}-0",
+        f"app/{service}-{stack}-{{stack_version}}",
         False)
 
       
