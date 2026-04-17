@@ -36,12 +36,13 @@ def create_graph_widget(namespace, metric_name, dimension_name, values, title='T
   widget = cw.GraphWidget(title=title, width=width, height=height, stacked=False, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
-def create_worker_stats_widget(title, stack_versions_to_worker_names_map, stack_versions, metric_name):
+def create_worker_stats_widget(title, stack_versions_to_worker_names_map, metric_name):
   metrics = []
-  for sv in stack_versions:
+  for sv in stack_versions_to_worker_names_map:
     namespace = f'Worker-Statistics-{sv}'
     version_metrics = [cw.Metric(namespace=namespace, metric_name=metric_name,
-                        dimensions_map={"Worker Name": value}) for value in stack_versions_to_worker_names_map[sv]]
+        dimensions_map={"Worker Name": value}) for value in stack_versions_to_worker_names_map[sv]]
+      
     metrics.extend(version_metrics)
   return cw.GraphWidget(title=title, width=24, height=3,
                         view=cw.GraphWidgetView.TIME_SERIES, stacked=False, period=Duration.seconds(300),
@@ -263,8 +264,10 @@ def create_opensearch_metric(collection_id, stack, stack_version):
   return metric
 
 
-def create_opensearch_widget(title, collection_id_map, stack, stack_versions):
-  metrics = [create_opensearch_metric(collection_id_map[sv], stack, sv) for sv in stack_versions]
+def create_opensearch_widget(title, collection_id_map, stack):
+  metrics = []
+  for sv in collection_id_map:
+    metrics.append(create_opensearch_metric(collection_id_map[sv], stack, sv))
   widget = cw.GraphWidget(title=title, width=24, height=4, left=metrics, view=cw.GraphWidgetView.TIME_SERIES)
   return widget
 
@@ -483,7 +486,7 @@ class SynapseCloudwatchDashboardStack(Stack):
       
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       collection_id_map = self.version_to_opesearch_collection_id_map(stack, stack_versions)
-      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', collection_id_map=collection_id_map, stack=stack, stack_versions=stack_versions)
+      opensearch_widget = create_opensearch_widget(title='OpenSearch - searchableDocuments', collection_id_map=collection_id_map, stack=stack)
       repo_active_connections_widget = create_repo_active_connections_widget(title='Repo-Active-Connections', stack_versions=stack_versions)
       workers_active_connections_widget = create_workers_active_connections_widget(title='Workers-Active-Connections', stack_versions=stack_versions)
       query_perf_widget = create_query_performance_widget(title="Query Performance", stack=stack, stack_versions=stack_versions)
@@ -506,9 +509,9 @@ class SynapseCloudwatchDashboardStack(Stack):
       repo_memory_widget = create_memory_widget(title='Repo - Memory used', stack_versions=stack_versions, environment='Repository')
       workers_memory_widget = create_memory_widget(title='Workers - Memory used', stack_versions=stack_versions, environment='Workers')
       stack_versions_to_worker_names_map = self.version_to_worker_names_map(stack_versions)
-      workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='Completed Job Count')
-      workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='% Time Running')
-      workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, stack_versions=stack_versions, metric_name='Cumulative runtime')
+      workers_jobs_completed_widget = create_worker_stats_widget(title="Workers stats - Jobs completed", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, metric_name='Completed Job Count')
+      workers_pc_time_widget = create_worker_stats_widget(title="Workers stats - % time running", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, metric_name='% Time Running')
+      workers_cumulative_time_widget = create_worker_stats_widget(title="Workers stats - Cumulative time", stack_versions_to_worker_names_map=stack_versions_to_worker_names_map, metric_name='Cumulative runtime')
       if beanstalk_mode:
         repo_alb_rtime_widget2 = create_repo_alb_response_widget_v2(title='Repo ALB response time', config=config, stack_versions=stack_versions)
       else:
