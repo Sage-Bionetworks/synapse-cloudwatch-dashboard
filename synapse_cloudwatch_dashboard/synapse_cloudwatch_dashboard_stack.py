@@ -337,7 +337,7 @@ def create_repo_alb_response_widget_v2(title, config, stack_versions):
 def create_repo_ecs_alb_response_widget_v2(title, stack, version_and_incr_lb_name_map):
   metrics = []
   for stack_version_and_incr in version_and_incr_lb_name_map:
-    lb_name=version_and_incr_lb_name_map[stack_version_and_incr]
+    lb_name=next(iter(version_and_incr_lb_name_map[stack_version_and_incr])) # there is only one
 
     metric1 = cw.Metric(
       namespace='AWS/ApplicationELB',
@@ -486,7 +486,6 @@ class SynapseCloudwatchDashboardStack(Stack):
       if beanstalk_mode:
         config = init_config(stack, aws_provider)
       self.cw_client = aws_provider.get_client(client_type='cloudwatch')
-      self.os_client = aws_provider.get_client(client_type='opensearchserverless')
       
       filescanner_widget = create_filescanner_widget(title='FileScanner', stack_versions=stack_versions)
       collection_id_map = self.version_to_opesearch_collection_id_map(stack, stack_versions)
@@ -587,7 +586,15 @@ class SynapseCloudwatchDashboardStack(Stack):
 
     # Look up any attribute given Synapse stack version,
     # returning a map from the latter to the former
-    def version_to_attribute_map(self, stack_versions, namespace, attribute_name, metric_name, matching_name_prefix, multi_value):
+    #
+    # stack_versions - list of stack versions to check, e.g. [583,584]
+    # namespace - CW namespace, e.g., AWS/ElasticBeanstalk
+    # attribute_name - name of the attribute to return, e.g. CollectionId (has values like 0go15fi4nx6cfe6cnia7)
+    # filter_name - optional name of the attribute to filter on, e.g. CollectionName (has values like dev-583-synsearch)
+    # matching_name_prefix - optional prefix to use with filter_name, with 'stack_version' as a placeholder, e.g. dev-{stack_version}-synsearch
+    # metric_name - name of some metric found in CW, e.g. TargetResponseTime
+    #
+    def version_to_attribute_map(self, stack_versions, namespace, attribute_name, filter_name, matching_name_prefix, metric_name):
       next_token=None
       result = {}
       while (True):
@@ -601,19 +608,21 @@ class SynapseCloudwatchDashboardStack(Stack):
             MetricName=metric_name,
             NextToken=next_token)
         for metric in response.get('Metrics',[]):
+          attribute_value=None
+          filter_value=None
           for dimension in metric.get('Dimensions',[]):
             if attribute_name==dimension.get('Name',None):
               attribute_value=dimension['Value']
-              for stack_version in stack_versions:
-                if matching_name_prefix is None or attribute_value.startswith(matching_name_prefix.format(stack_version=stack_version)):
-                  if multi_value:
-                    value_list = result.get(stack_version)
-                    if value_list is None:
-                      value_list = []
-                      result[stack_version]=value_list
-                    value_list.append(attribute_value)
-                  else:
-                    result[stack_version]=attribute_value
+            if filter_name is not None and filter_name==dimension.get('Name',None):
+              filter_value=dimension['Value']
+          if attribute_value is not None:
+            for stack_version in stack_versions:
+                if matching_name_prefix is None or (filter_value is not None and filter_value.startswith(matching_name_prefix.format(stack_version=stack_version))):
+                  value_list = result.get(stack_version)
+                  if value_list is None:
+                    value_list = set()
+                    result[stack_version]=value_list
+                  value_list.add(attribute_value)
         next_token = response.get("NextToken",None)
         if next_token is None:
           break
@@ -631,34 +640,31 @@ class SynapseCloudwatchDashboardStack(Stack):
         stack_versions_and_incrs,
         "AWS/ApplicationELB",
         "LoadBalancer",
-        "TargetResponseTime",
+        "LoadBalancer",
         f"app/{service}-{stack}-{{stack_version}}",
-        False)
+        "TargetResponseTime")
 
       
     def version_to_worker_names_map(self, stack_versions):
       result = {}
       for sv in stack_versions:
-        result.update( self.version_to_attribute_map(
+        result.update(self.version_to_attribute_map(
           [sv],
           f"Worker-Statistics-{sv}",
           "Worker Name",
-          "Cumulative runtime",
           None,
-          True))
+          None,
+          "Cumulative runtime"))
       return result
-
 
     # Look up the OpenSearch collection ids for Synapse stack versions,
     # returning a map from the latter to the former
     def version_to_opesearch_collection_id_map(self, stack, stack_versions):
-      result = {}
-      for sv in stack_versions:
-        name=f"{stack}-{sv}-synsearch"
-        response = self.os_client.list_collections(collectionFilters={"name":name})
-        result[sv]=[]
-        for collectionSummary in response.get('collectionSummaries',[]):
-          if name==collectionSummary.get('name',None):
-            result[sv].append(collectionSummary['id'])
-      return result
+      return self.version_to_attribute_map(
+        stack_versions,
+        "AWS/AOSS",
+        "CollectionId",
+        "CollectionName",
+        f"{stack}-{{stack_version}}-synsearch",
+        "SearchableDocuments")
 
